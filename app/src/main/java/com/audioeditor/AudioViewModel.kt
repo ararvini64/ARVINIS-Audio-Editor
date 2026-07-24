@@ -1,6 +1,7 @@
 package com.audioeditor
 
 import android.app.Application
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -13,15 +14,20 @@ import java.io.File
 data class AudioUiState(
     val isRecording: Boolean = false,
     val isPlaying: Boolean = false,
+    val isTrimming: Boolean = false,
     val audioUri: Uri? = null,
     val amplitudes: List<Float> = emptyList(),
+    val durationMs: Long = 0L,
+    val trimStartRange: Float = 0f,
+    val trimEndRange: Float = 1f,
     val statusText: String = "یک فایل انتخاب کنید یا صدا ضبط کنید"
 )
 
 class AudioViewModel(application: Application) : AndroidViewModel(application) {
-    private val recorder: AndroidAudioRecorder by lazy { AndroidAudioRecorder(application) }
-    private val player: AndroidAudioPlayer by lazy { AndroidAudioPlayer(application) }
-    private val extractor: AudioWaveformExtractor by lazy { AudioWaveformExtractor(application) }
+    private val recorder by lazy { AndroidAudioRecorder(application) }
+    private val player by lazy { AndroidAudioPlayer(application) }
+    private val extractor by lazy { AudioWaveformExtractor(application) }
+    private val trimmer by lazy { AudioTrimmer(application) }
 
     private val _uiState = MutableStateFlow(AudioUiState())
     val uiState: StateFlow<AudioUiState> = _uiState.asStateFlow()
@@ -35,7 +41,7 @@ class AudioViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(
                 isRecording = false,
                 audioUri = uri,
-                statusText = "ضبط متوقف شد. در حال آنالیز صدا..."
+                statusText = "ضبط متوقف شد. در حال آنالیز..."
             )
             uri?.let { processAudioWaveform(it) }
         } else {
@@ -50,8 +56,7 @@ class AudioViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun togglePlay() {
-        val currentUri = _uiState.value.audioUri
-        if (currentUri == null) return
+        val currentUri = _uiState.value.audioUri ?: return
 
         if (_uiState.value.isPlaying) {
             player.stop()
@@ -65,18 +70,64 @@ class AudioViewModel(application: Application) : AndroidViewModel(application) {
     fun setAudioUri(uri: Uri) {
         _uiState.value = _uiState.value.copy(
             audioUri = uri,
-            statusText = "در حال پردازش شکل موج..."
+            trimStartRange = 0f,
+            trimEndRange = 1f,
+            statusText = "در حال پردازش..."
         )
         processAudioWaveform(uri)
+    }
+
+    fun updateTrimRange(start: Float, end: Float) {
+        _uiState.value = _uiState.value.copy(
+            trimStartRange = start,
+            trimEndRange = end
+        )
+    }
+
+    fun trimAndSaveAudio() {
+        val uri = _uiState.value.audioUri ?: return
+        val totalDuration = _uiState.value.durationMs
+        if (totalDuration <= 0) return
+
+        val startMs = (_uiState.value.trimStartRange * totalDuration).toLong()
+        val endMs = (_uiState.value.trimEndRange * totalDuration).toLong()
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isTrimming = true, statusText = "در حال برش فایل...")
+            val outputFile = File(getApplication<Application>().cacheDir, "trimmed_audio_${System.currentTimeMillis()}.mp4")
+            
+            val success = trimmer.trimAudio(uri, outputFile, startMs, endMs)
+            if (success) {
+                val newUri = Uri.fromFile(outputFile)
+                setAudioUri(newUri)
+                _uiState.value = _uiState.value.copy(isTrimming = false, statusText = "برش با موفقیت انجام شد!")
+            } else {
+                _uiState.value = _uiState.value.copy(isTrimming = false, statusText = "خطا در برش فایل صوتی")
+            }
+        }
     }
 
     private fun processAudioWaveform(uri: Uri) {
         viewModelScope.launch {
             val amplitudes = extractor.extractAmplitudes(uri)
+            val duration = getAudioDuration(uri)
             _uiState.value = _uiState.value.copy(
                 amplitudes = amplitudes,
-                statusText = "فایل صوتی بارگذاری شد"
+                durationMs = duration,
+                statusText = "آماده ادیت (طول فایل: ${duration / 1000} ثانیه)"
             )
+        }
+    }
+
+    private fun getAudioDuration(uri: Uri): Long {
+        return try {
+            val retriever = MediaMetadataRetriever()
+            retriever.setDataSource(getApplication(), uri)
+            val time = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+            retriever.release()
+            time?.toLong() ?: 0L
+        } catch (e: Exception) {
+            0L
         }
     }
 }
