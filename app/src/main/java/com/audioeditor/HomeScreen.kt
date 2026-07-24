@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.PlayArrow
@@ -40,7 +41,7 @@ fun HomeScreen(viewModel: AudioViewModel = viewModel()) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Audio Editor") }
+                title = { Text("Audio Editor Pro") }
             )
         }
     ) { innerPadding ->
@@ -56,18 +57,39 @@ fun HomeScreen(viewModel: AudioViewModel = viewModel()) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .padding(bottom = 16.dp),
+                    .padding(bottom = 8.dp),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    WaveformView(amplitudes = uiState.amplitudes)
+                    WaveformView(
+                        amplitudes = uiState.amplitudes,
+                        startRange = uiState.trimStartRange,
+                        endRange = uiState.trimEndRange
+                    )
                     Text(
                         text = uiState.statusText,
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+                    )
+                }
+            }
+
+            // بخش کنترل اسلایدرهای محدوده برش
+            if (uiState.audioUri != null && uiState.durationMs > 0) {
+                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    Text(
+                        text = "محدوده برش: از ${(uiState.trimStartRange * uiState.durationMs / 1000).toInt()}s تا ${(uiState.trimEndRange * uiState.durationMs / 1000).toInt()}s",
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    RangeSlider(
+                        value = uiState.trimStartRange..uiState.trimEndRange,
+                        onValueChange = { range ->
+                            viewModel.updateTrimRange(range.start, range.endInclusive)
+                        },
+                        valueRange = 0f..1f
                     )
                 }
             }
@@ -112,6 +134,16 @@ fun HomeScreen(viewModel: AudioViewModel = viewModel()) {
                             imageVector = if (uiState.isPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
                             contentDescription = "Play"
                         )
+                    }
+
+                    // دکمه برش و ذخیره اصلی
+                    Button(
+                        onClick = { viewModel.trimAndSaveAudio() },
+                        enabled = uiState.audioUri != null && !uiState.isTrimming && !uiState.isRecording
+                    ) {
+                        Icon(Icons.Default.ContentCut, contentDescription = "Trim")
+                        Spacer(Modifier.width(4.dp))
+                        Text("برش")
                     }
                 }
             }
