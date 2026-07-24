@@ -19,9 +19,9 @@ data class AudioUiState(
 )
 
 class AudioViewModel(application: Application) : AndroidViewModel(application) {
-    private val recorder by lazy { AndroidAudioRecorder(application) }
-    private val player by lazy { AndroidAudioPlayer(application) }
-    private val extractor by lazy { AudioWaveformExtractor(application) }
+    private val recorder: AndroidAudioRecorder by lazy { AndroidAudioRecorder(application) }
+    private val player: AndroidAudioPlayer by lazy { AndroidAudioPlayer(application) }
+    private val extractor: AudioWaveformExtractor by lazy { AudioWaveformExtractor(application) }
 
     private val _uiState = MutableStateFlow(AudioUiState())
     val uiState: StateFlow<AudioUiState> = _uiState.asStateFlow()
