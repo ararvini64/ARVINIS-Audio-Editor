@@ -1,13 +1,15 @@
 package com.audioeditor
 
 import android.content.Context
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
+import android.media.MediaMuxer
 import android.net.Uri
-import com.ffmpegkit.FFmpegKit
-import com.ffmpegkit.FFmpegKitConfig
-import com.ffmpegkit.ReturnCode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.nio.ByteBuffer
 
 class AudioTrimmer(private val context: Context) {
 
@@ -17,21 +19,66 @@ class AudioTrimmer(private val context: Context) {
         startMs: Long,
         endMs: Long
     ): Boolean = withContext(Dispatchers.IO) {
+        val extractor = MediaExtractor()
+        var muxer: MediaMuxer? = null
         try {
-            val startSec = startMs / 1000.0
-            val durationSec = (endMs - startMs) / 1000.0
+            extractor.setDataSource(context, inputUri, null)
+            var audioTrackIndex = -1
+            var format: MediaFormat? = null
 
-            // تبدیل Uri اندروید به مسیر قابل فهم برای FFmpeg
-            val inputPath = FFmpegKitConfig.getSafParameterForRead(context, inputUri)
+            for (i in 0 until extractor.trackCount) {
+                val trackFormat = extractor.getTrackFormat(i)
+                val mime = trackFormat.getString(MediaFormat.KEY_MIME)
+                if (mime?.startsWith("audio/") == true) {
+                    audioTrackIndex = i
+                    format = trackFormat
+                    break
+                }
+            }
 
-            // دستور FFmpeg برای برش بسیار سریع و بدون افت کیفیت
-            val cmd = "-ss $startSec -i $inputPath -t $durationSec -c copy \"${outputFile.absolutePath}\" -y"
+            if (audioTrackIndex < 0 || format == null) return@withContext false
 
-            val session = FFmpegKit.execute(cmd)
+            extractor.selectTrack(audioTrackIndex)
 
-            ReturnCode.isSuccess(session.returnCode)
+            muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+            val muxerTrackIndex = muxer.addTrack(format)
+            muxer.start()
+
+            val startUs = startMs * 1000
+            val endUs = endMs * 1000
+
+            extractor.seekTo(startUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+
+            val bufferSize = 1024 * 1024
+            val buffer = ByteBuffer.allocate(bufferSize)
+            val bufferInfo = MediaCodec.BufferInfo()
+
+            while (true) {
+                val sampleSize = extractor.readSampleData(buffer, 0)
+                if (sampleSize < 0) break
+
+                val sampleTime = extractor.sampleTime
+                if (sampleTime > endUs) break
+
+                if (sampleTime >= startUs) {
+                    bufferInfo.offset = 0
+                    bufferInfo.size = sampleSize
+                    bufferInfo.presentationTimeUs = sampleTime - startUs
+                    bufferInfo.flags = extractor.sampleFlags
+
+                    muxer.writeSampleData(muxerTrackIndex, buffer, bufferInfo)
+                }
+                extractor.advance()
+            }
+
+            muxer.stop()
+            muxer.release()
+            extractor.release()
+            true
         } catch (e: Exception) {
             e.printStackTrace()
+            try { muxer?.release() } catch (_: Exception) {}
+            try { extractor.release() } catch (_: Exception) {}
             false
         }
     }
