@@ -64,6 +64,7 @@ fun HomeScreen(viewModel: AudioViewModel = viewModel()) {
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
+                    // تغییر اصلی اینجاست: پاس دادن startRange و endRange
                     WaveformView(
                         amplitudes = uiState.amplitudes,
                         startRange = uiState.trimStartRange,
@@ -77,7 +78,7 @@ fun HomeScreen(viewModel: AudioViewModel = viewModel()) {
                 }
             }
 
-            // بخش کنترل اسلایدرهای محدوده برش
+            // اسلایدرهای انتخاب محدوده برش
             if (uiState.audioUri != null && uiState.durationMs > 0) {
                 Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                     Text(
@@ -136,7 +137,6 @@ fun HomeScreen(viewModel: AudioViewModel = viewModel()) {
                         )
                     }
 
-                    // دکمه برش و ذخیره اصلی
                     Button(
                         onClick = { viewModel.trimAndSaveAudio() },
                         enabled = uiState.audioUri != null && !uiState.isTrimming && !uiState.isRecording
