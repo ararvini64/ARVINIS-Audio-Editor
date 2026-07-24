@@ -62,8 +62,10 @@ class AudioViewModel(application: Application) : AndroidViewModel(application) {
             player.stop()
             _uiState.value = _uiState.value.copy(isPlaying = false, statusText = "پخش متوقف شد")
         } else {
-            player.playFile(currentUri)
-            _uiState.value = _uiState.value.copy(isPlaying = true, statusText = "در حال پخش...")
+            // شروع پخش دقیقاً از زمان مارکر شروع (هایلایت)
+            val startMs = (_uiState.value.trimStartRange * _uiState.value.durationMs).toLong()
+            player.playFile(currentUri, startMs)
+            _uiState.value = _uiState.value.copy(isPlaying = true, statusText = "در حال پخش از محدوده انتخاب شده...")
         }
     }
 
@@ -94,7 +96,7 @@ class AudioViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isTrimming = true, statusText = "در حال برش فایل...")
-            val outputFile = File(getApplication<Application>().cacheDir, "trimmed_audio_${System.currentTimeMillis()}.mp4")
+            val outputFile = File(getApplication<Application>().cacheDir, "trimmed_${System.currentTimeMillis()}.m4a")
             
             val success = trimmer.trimAudio(uri, outputFile, startMs, endMs)
             if (success) {
