@@ -55,5 +55,5 @@ dependencies {
 
     // Navigation & ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
-    implementation("com.arthenica:ffmpeg-kit-full:6.0-2")
+
 }
