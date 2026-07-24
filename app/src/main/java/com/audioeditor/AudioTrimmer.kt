@@ -24,42 +24,55 @@ class AudioTrimmer(private val context: Context) {
         try {
             extractor.setDataSource(context, inputUri, null)
             var audioTrackIndex = -1
+            var format: MediaFormat? = null
+
             for (i in 0 until extractor.trackCount) {
-                val format = extractor.getTrackFormat(i)
-                val mime = format.getString(MediaFormat.KEY_MIME)
+                val trackFormat = extractor.getTrackFormat(i)
+                val mime = trackFormat.getString(MediaFormat.KEY_MIME)
                 if (mime?.startsWith("audio/") == true) {
                     audioTrackIndex = i
+                    format = trackFormat
                     break
                 }
             }
 
-            if (audioTrackIndex < 0) return@withContext false
+            if (audioTrackIndex < 0 || format == null) return@withContext false
 
             extractor.selectTrack(audioTrackIndex)
-            val format = extractor.getTrackFormat(audioTrackIndex)
 
+            // ایجاد خروجی M4A (سازگارترین فرمت اندروید)
             muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             val muxerTrackIndex = muxer.addTrack(format)
             muxer.start()
 
             val startUs = startMs * 1000
             val endUs = endMs * 1000
+
+            // پرش به نزدیک‌ترین فریم همگام‌سازی
             extractor.seekTo(startUs, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
 
-            val bufferSize = 1024 * 1024
+            val bufferSize = if (format.containsKey(MediaFormat.KEY_MAX_INPUT_SIZE)) {
+                format.getInteger(MediaFormat.KEY_MAX_INPUT_SIZE)
+            } else {
+                1024 * 1024
+            }
+
             val buffer = ByteBuffer.allocate(bufferSize)
             val bufferInfo = MediaCodec.BufferInfo()
 
             while (true) {
                 bufferInfo.offset = 0
-                bufferInfo.size = extractor.readSampleData(buffer, 0)
+                val sampleSize = extractor.readSampleData(buffer, 0)
 
-                if (bufferInfo.size < 0) break
+                if (sampleSize < 0) break
 
-                bufferInfo.presentationTimeUs = extractor.sampleTime
-                if (bufferInfo.presentationTimeUs > endUs) break
+                val sampleTime = extractor.sampleTime
+                if (sampleTime > endUs) break
 
+                bufferInfo.size = sampleSize
+                bufferInfo.presentationTimeUs = sampleTime - startUs // تنظیم زمان‌بندی از صفر
                 bufferInfo.flags = extractor.sampleFlags
+
                 muxer.writeSampleData(muxerTrackIndex, buffer, bufferInfo)
                 extractor.advance()
             }
@@ -70,8 +83,12 @@ class AudioTrimmer(private val context: Context) {
             true
         } catch (e: Exception) {
             e.printStackTrace()
-            muxer?.release()
-            extractor.release()
+            try {
+                muxer?.release()
+            } catch (_: Exception) {}
+            try {
+                extractor.release()
+            } catch (_: Exception) {}
             false
         }
     }
