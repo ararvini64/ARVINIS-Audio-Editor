@@ -13,8 +13,11 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun WaveformView(
     amplitudes: List<Float>,
+    startRange: Float, // بین 0 تا 1
+    endRange: Float,   // بین 0 تا 1
     modifier: Modifier = Modifier,
-    color: Color = MaterialTheme.colorScheme.primary
+    activeColor: Color = MaterialTheme.colorScheme.primary,
+    inactiveColor: Color = Color.Gray.copy(alpha = 0.4f)
 ) {
     Canvas(
         modifier = modifier
@@ -29,10 +32,16 @@ fun WaveformView(
         val count = amplitudes.size
         val space = width / count
 
+        val startX = startRange * width
+        val endX = endRange * width
+
         for (i in 0 until count) {
             val amplitude = amplitudes[i]
             val lineHeight = amplitude * (height * 0.8f)
             val x = i * space + space / 2
+
+            val isSelected = x in startX..endX
+            val color = if (isSelected) activeColor else inactiveColor
 
             drawLine(
                 color = color,
@@ -41,5 +50,19 @@ fun WaveformView(
                 strokeWidth = 6f
             )
         }
+
+        // رسم خطوط و مارکرهای انتخاب محدوده
+        drawLine(
+            color = Color.Red,
+            start = Offset(startX, 0f),
+            end = Offset(startX, height),
+            strokeWidth = 8f
+        )
+        drawLine(
+            color = Color.Red,
+            start = Offset(endX, 0f),
+            end = Offset(endX, height),
+            strokeWidth = 8f
+        )
     }
 }
