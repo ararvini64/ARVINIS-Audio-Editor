@@ -7,9 +7,14 @@ import android.net.Uri
 class AndroidAudioPlayer(private val context: Context) {
     private var player: MediaPlayer? = null
 
-    fun playFile(fileUri: Uri) {
-        MediaPlayer.create(context, fileUri)?.apply {
-            player = this
+    fun playFile(uri: Uri, startMs: Long = 0L) {
+        stop()
+        player = MediaPlayer().apply {
+            setDataSource(context, uri)
+            prepare()
+            if (startMs > 0 && startMs < duration) {
+                seekTo(startMs.toInt())
+            }
             start()
         }
     }
@@ -19,7 +24,4 @@ class AndroidAudioPlayer(private val context: Context) {
         player?.release()
         player = null
     }
-
-    val isPlaying: Boolean
-        get() = player?.isPlaying ?: false
 }
