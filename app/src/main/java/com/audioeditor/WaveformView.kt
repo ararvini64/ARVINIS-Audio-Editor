@@ -1,108 +1,45 @@
 package com.audioeditor
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.dp
 
 @Composable
 fun WaveformView(
     amplitudes: List<Float>,
-    progress: Float,
-    selectionRange: ClosedFloatingPointRange<Float>,
-    onSelectionChanged: (ClosedFloatingPointRange<Float>) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.primary
 ) {
     Canvas(
         modifier = modifier
-            .fillMaxSize()
-            .pointerInput(amplitudes) {
-                detectHorizontalDragGestures { change, dragAmount ->
-                    val width = size.width.toFloat()
-                    if (width > 0) {
-                        val deltaFraction = dragAmount / width
-                        val currentStart = selectionRange.start
-                        val currentEnd = selectionRange.endInclusive
-
-                        // تشخیص اینکه کاربر دستگیره چپ رو می‌کشه یا راست
-                        val touchXFraction = change.position.x / width
-                        if (Math.abs(touchXFraction - currentStart) < Math.abs(touchXFraction - currentEnd)) {
-                            val newStart = (currentStart + deltaFraction).coerceIn(0f, currentEnd - 0.05f)
-                            onSelectionChanged(newStart..currentEnd)
-                        } else {
-                            val newEnd = (currentEnd + deltaFraction).coerceIn(currentStart + 0.05f, 1f)
-                            onSelectionChanged(currentStart..newEnd)
-                        }
-                    }
-                }
-            }
+            .fillMaxWidth()
+            .height(180.dp)
     ) {
+        if (amplitudes.isEmpty()) return@Canvas
+
         val width = size.width
         val height = size.height
-        val centerY = height / 2
+        val middle = height / 2
+        val count = amplitudes.size
+        val space = width / count
 
-        if (amplitudes.isEmpty()) {
-            // رسم خط پیش‌فرض وقتی فایلی بارگذاری نشده
-            drawLine(
-                color = Color.Gray,
-                start = Offset(0f, centerY),
-                end = Offset(width, centerY),
-                strokeWidth = 2f
-            )
-            return@Canvas
-        }
-
-        val barWidth = width / amplitudes.size.toFloat()
-        
-        // ۱. رسم شکل‌موج اصلی
-        amplitudes.forEachIndexed { index, amp ->
-            val x = index * barWidth
-            val barHeight = (amp * (height / 2)).coerceAtLeast(4f)
-
-            val color = if (index.toFloat() / amplitudes.size in selectionRange) {
-                Color(0xFF6200EE) // بنفش برای بخش انتخاب‌شده
-            } else {
-                Color.LightGray // خاکستری برای بخش‌های بیرون از انتخاب
-            }
+        for (i in 0 until count) {
+            val amplitude = amplitudes[i]
+            val lineHeight = amplitude * (height * 0.8f)
+            val x = i * space + space / 2
 
             drawLine(
                 color = color,
-                start = Offset(x, centerY - barHeight / 2),
-                end = Offset(x, centerY + barHeight / 2),
-                strokeWidth = (barWidth * 0.8f).coerceAtLeast(2f)
+                start = Offset(x, middle - lineHeight / 2),
+                end = Offset(x, middle + lineHeight / 2),
+                strokeWidth = 6f
             )
         }
-
-        // ۲. رسم خط پیشرفت پخش (Playhead)
-        val progressX = progress * width
-        drawLine(
-            color = Color.Red,
-            start = Offset(progressX, 0f),
-            end = Offset(progressX, height),
-            strokeWidth = 4f
-        )
-
-        // ۳. رسم دستگیره‌های برش (Trim Handles)
-        val startX = selectionRange.start * width
-        val endX = selectionRange.endInclusive * width
-
-        // دستگیره شروع
-        drawRect(
-            color = Color(0xFF03DAC5),
-            topLeft = Offset(startX - 6f, 0f),
-            size = Size(12f, height)
-        )
-
-        // دستگیره پایان
-        drawRect(
-            color = Color(0xFF03DAC5),
-            topLeft = Offset(endX - 6f, 0f),
-            size = Size(12f, height)
-        )
     }
 }
