@@ -1,109 +1,82 @@
 package com.audioeditor
 
-import android.content.Context
-import android.media.MediaExtractor
-import android.media.MediaFormat
+import android.app.Application
 import android.net.Uri
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
-import java.io.FileOutputStream
-import java.nio.ByteBuffer
 
-class AudioViewModel : ViewModel() {
+data class AudioUiState(
+    val isRecording: Boolean = false,
+    val isPlaying: Boolean = false,
+    val audioUri: Uri? = null,
+    val amplitudes: List<Float> = emptyList(),
+    val statusText: String = "یک فایل انتخاب کنید یا صدا ضبط کنید"
+)
 
-    private val _amplitudes = MutableStateFlow<List<Float>>(emptyList())
-    val amplitudes: StateFlow<List<Float>> = _amplitudes.asStateFlow()
+class AudioViewModel(application: Application) : AndroidViewModel(application) {
+    private val recorder by lazy { AndroidAudioRecorder(application) }
+    private val player by lazy { AndroidAudioPlayer(application) }
+    private val extractor by lazy { AudioWaveformExtractor(application) }
 
-    private val _selectionRange = MutableStateFlow(0f..1f)
-    val selectionRange: StateFlow<ClosedFloatingPointRange<Float>> = _selectionRange.asStateFlow()
+    private val _uiState = MutableStateFlow(AudioUiState())
+    val uiState: StateFlow<AudioUiState> = _uiState.asStateFlow()
 
-    private val _isProcessing = MutableStateFlow(false)
-    val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
+    private var audioFile: File? = null
 
-    fun updateSelection(newRange: ClosedFloatingPointRange<Float>) {
-        _selectionRange.value = newRange
-    }
-
-    // استخراج دامنه‌ها برای رسم Waveform واقعی
-    fun extractWaveform(context: Context, uri: Uri) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _isProcessing.value = true
-            val extracted = mutableListOf<Float>()
-            try {
-                val extractor = MediaExtractor()
-                extractor.setDataSource(context, uri, null)
-                
-                var format: MediaFormat? = null
-                for (i in 0 until extractor.trackCount) {
-                    val trackFormat = extractor.getTrackFormat(i)
-                    val mime = trackFormat.getString(MediaFormat.KEY_MIME)
-                    if (mime?.startsWith("audio/") == true) {
-                        extractor.selectTrack(i)
-                        format = trackFormat
-                        break
-                    }
-                }
-
-                if (format != null) {
-                    val buffer = ByteBuffer.allocate(4096)
-                    var sampleCount = 0
-                    while (extractor.readSampleData(buffer, 0) >= 0 && sampleCount < 200) {
-                        val sample = Math.abs(buffer.get(0).toInt()) / 128f
-                        extracted.add(sample.coerceIn(0.1f, 1.0f))
-                        extractor.advance()
-                        buffer.clear()
-                        sampleCount++
-                    }
-                }
-                extractor.release()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-
-            if (extracted.isEmpty()) {
-                // اگر استخراج با خطا مواجه شد، مقادیر پیش‌فرض ایجاد کن
-                _amplitudes.value = List(100) { (Math.random() * 0.8 + 0.2).toFloat() }
-            } else {
-                _amplitudes.value = extracted
-            }
-            _isProcessing.value = false
+    fun toggleRecording() {
+        if (_uiState.value.isRecording) {
+            recorder.stop()
+            val uri = Uri.fromFile(audioFile)
+            _uiState.value = _uiState.value.copy(
+                isRecording = false,
+                audioUri = uri,
+                statusText = "ضبط متوقف شد. در حال آنالیز صدا..."
+            )
+            uri?.let { processAudioWaveform(it) }
+        } else {
+            val file = File(getApplication<Application>().cacheDir, "recorded_audio.mp3")
+            recorder.start(file)
+            audioFile = file
+            _uiState.value = _uiState.value.copy(
+                isRecording = true,
+                statusText = "در حال ضبط صدا..."
+            )
         }
     }
 
-    // برش فایل صوتی بر اساس محدوده انتخابی
-    fun trimAudio(context: Context, inputUri: Uri, onComplete: (File) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _isProcessing.value = true
-            try {
-                val inputStream = context.contentResolver.openInputStream(inputUri)
-                val outputFile = File(context.cacheDir, "trimmed_audio_${System.currentTimeMillis()}.mp3")
-                val outputStream = FileOutputStream(outputFile)
+    fun togglePlay() {
+        val currentUri = _uiState.value.audioUri
+        if (currentUri == null) return
 
-                inputStream?.use { input ->
-                    val bytes = input.readBytes()
-                    val totalSize = bytes.size
-                    val startByte = (totalSize * _selectionRange.value.start).toInt()
-                    val endByte = (totalSize * _selectionRange.value.endInclusive).toInt()
+        if (_uiState.value.isPlaying) {
+            player.stop()
+            _uiState.value = _uiState.value.copy(isPlaying = false, statusText = "پخش متوقف شد")
+        } else {
+            player.playFile(currentUri)
+            _uiState.value = _uiState.value.copy(isPlaying = true, statusText = "در حال پخش...")
+        }
+    }
 
-                    if (startByte < endByte && endByte <= totalSize) {
-                        outputStream.write(bytes, startByte, endByte - startByte)
-                    }
-                }
-                outputStream.close()
+    fun setAudioUri(uri: Uri) {
+        _uiState.value = _uiState.value.copy(
+            audioUri = uri,
+            statusText = "در حال پردازش شکل موج..."
+        )
+        processAudioWaveform(uri)
+    }
 
-                viewModelScope.launch(Dispatchers.Main) {
-                    onComplete(outputFile)
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            _isProcessing.value = false
+    private fun processAudioWaveform(uri: Uri) {
+        viewModelScope.launch {
+            val amplitudes = extractor.extractAmplitudes(uri)
+            _uiState.value = _uiState.value.copy(
+                amplitudes = amplitudes,
+                statusText = "فایل صوتی بارگذاری شد"
+            )
         }
     }
 }
